@@ -15,10 +15,17 @@ var Property = (function () {
 var Klass = (function () {
     function Klass() {
         this.descriptors = new Map();
-        this.keysForProperties = [];
+        this.__numberOfProperties = 0;
     }
+    Object.defineProperty(Klass.prototype, "numberOfProperties", {
+        get: function () {
+            return this.__numberOfProperties;
+        },
+        enumerable: true,
+        configurable: true
+    });
     Klass.prototype.addProperty = function (key) {
-        var klass = this.clone();
+        var klass = this.cloneProperties();
         klass.append(key);
         // Connect hidden classes with transition to enable sharing:
         //           this == add property key ==> klass
@@ -34,20 +41,30 @@ var Klass = (function () {
     Klass.prototype.getIndex = function (key) {
         return this.getDescriptor(key).index;
     };
+    Klass.prototype.getProperties = function () {
+        var arr = [];
+        this.descriptors.forEach(function (value, key) {
+            if (value instanceof Property) {
+                arr[value.index] = key;
+            }
+        });
+        return arr;
+    };
     // Create clone of this hidden class that has same properties
     // at same offsets (but does not have any transitions).
-    Klass.prototype.clone = function () {
+    Klass.prototype.cloneProperties = function () {
         var klass = new Klass();
-        klass.keysForProperties = this.keysForProperties.slice(0);
-        for (var i_1 = 0; i_1 < this.keysForProperties.length; i_1++) {
-            var key = this.keysForProperties[i_1];
-            klass.descriptors.set(key, this.descriptors.get(key));
-        }
+        klass.__numberOfProperties = this.__numberOfProperties;
+        this.descriptors.forEach(function (value, key) {
+            if (value instanceof Property) {
+                klass.descriptors.set(key, value);
+            }
+        });
         return klass;
     };
     // Add real property to descriptors.
     Klass.prototype.append = function (key) {
-        var index = this.keysForProperties.push(key) - 1;
+        var index = this.__numberOfProperties++;
         this.descriptors.set(key, new Property(index));
     };
     return Klass;
@@ -129,7 +146,7 @@ var Table = (function () {
             return desc.index;
         }
         else {
-            if (this.klass.keysForProperties.length > 20) {
+            if (this.klass.numberOfProperties > 20) {
                 // Too many properties! Achtung! Fast case kaput.
                 return -1;
             }
@@ -150,13 +167,14 @@ var Table = (function () {
     // Copy all properties into the Map and switch to slow class.
     Table.prototype.convertToSlow = function () {
         var map = new Map();
-        for (var i_2 = 0; i_2 < this.klass.keysForProperties.length; i_2++) {
-            var key = this.klass.keysForProperties[i_2];
-            var val = this.stringKeyValues[i_2];
+        var props = this.klass.getProperties();
+        for (var i_1 = 0; i_1 < props.length; i_1++) {
+            var key = props[i_1];
+            var val = this.stringKeyValues[i_1];
             map.set(key, val);
         }
         Object.keys(this.numberKeyValues).forEach(function (key) {
-            var val = this.elements[key];
+            var val = this.numberKeyValues[key];
             map.set(key, val); // Funky JS, force string key back to int32.
         }, this);
         this.slow = map;

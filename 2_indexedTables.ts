@@ -17,10 +17,14 @@ class Property {
 
 class Klass {
   private descriptors = new Map<Key, Transition | Property>();
-  public keysForProperties = [];
+  private __numberOfProperties = 0;
+
+  get numberOfProperties() {
+    return this.__numberOfProperties;
+  }
 
   addProperty(key: Key): Klass {
-    const klass = this.clone();
+    const klass = this.cloneProperties();
     klass.append(key);
     // Connect hidden classes with transition to enable sharing:
     //           this == add property key ==> klass
@@ -40,21 +44,32 @@ class Klass {
     return (this.getDescriptor(key) as Property).index;
   }
 
+  getProperties(): Key[] {
+    const arr: Key[] = [];
+    this.descriptors.forEach((value, key) => {
+      if (value instanceof Property) {
+        arr[value.index] = key;
+      }
+    });
+    return arr;
+  }
+
   // Create clone of this hidden class that has same properties
   // at same offsets (but does not have any transitions).
-  private clone(): Klass {
+  private cloneProperties(): Klass {
     const klass = new Klass();
-    klass.keysForProperties = this.keysForProperties.slice(0);
-    for (let i = 0; i < this.keysForProperties.length; i++) {
-      const key = this.keysForProperties[i];
-      klass.descriptors.set(key, this.descriptors.get(key));
-    }
+    klass.__numberOfProperties = this.__numberOfProperties;
+    this.descriptors.forEach((value, key) => {
+      if (value instanceof Property) {
+        klass.descriptors.set(key, value);
+      }
+    });
     return klass;
   }
 
   // Add real property to descriptors.
-  private append(key): void {
-    const index = this.keysForProperties.push(key) - 1;
+  private append(key: Key): void {
+    const index = this.__numberOfProperties++;
     this.descriptors.set(key, new Property(index));
   }
 }
@@ -64,8 +79,8 @@ const ROOT_KLASS = new Klass();
 class Table {
   private type: KlassKind = KlassKind.FAST;
   private klass = ROOT_KLASS;
-  private stringKeyValues = [];
-  private numberKeyValues = [];
+  private stringKeyValues: Value[] = [];
+  private numberKeyValues: Value[] = [];
   private slow: Map<Key, Value> = undefined;
 
   load(key: Key): Value {
@@ -75,7 +90,7 @@ class Table {
 
     if (typeof key === "number") { // Indexed property.
       return this.numberKeyValues[key | 0];
-    } else if (typeof key === "string") {  // Named property.
+    } else {
       const idx = this.findIndexForStringKeyLoad(key);
       return (idx >= 0) ? this.stringKeyValues[idx] : void 0;
     }
@@ -91,7 +106,7 @@ class Table {
     if (typeof key === "number") {  // Indexed property.
       this.numberKeyValues[key | 0] = value;
       return;
-    } else if (typeof key === "string") {  // Named property.
+    } else {  // Named property.
       const index = this.getOrCreateIndexForStringKeyStore(key);
       if (index >= 0) {
         this.stringKeyValues[index] = value;
@@ -117,8 +132,8 @@ class Table {
       // Get index of existing property.
       return desc.index;
     } else {
-      // To many properties! Achtung! Fast case kaput.
-      if (this.klass.keysForProperties.length > 20) return -1;
+      // Too many properties! Achtung! Fast case kaput.
+      if (this.klass.numberOfProperties > 20) return -1;
       // Switch class to the one that has this property.
       this.klass = this.klass.addProperty(key);
       return this.klass.getIndex(key);
@@ -136,14 +151,15 @@ class Table {
   // Copy all properties into the Map and switch to slow class.
   private convertToSlow(): void {
     const map = new Map<Key, Value>();
-    for (let i = 0; i < this.klass.keysForProperties.length; i++) {
-      const key = this.klass.keysForProperties[i];
+    const props = this.klass.getProperties();
+    for (let i = 0; i < props.length; i++) {
+      const key = props[i];
       const val = this.stringKeyValues[i];
       map.set(key, val);
     }
 
     Object.keys(this.numberKeyValues).forEach(function (key) {
-      var val = this.elements[key];
+      const val = this.numberKeyValues[key];
       map.set(key as any | 0, val);  // Funky JS, force string key back to int32.
     }, this);
 
