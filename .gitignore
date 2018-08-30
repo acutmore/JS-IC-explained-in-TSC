@@ -1,1 +1,5 @@
 node_modules
+0_native.js
+1_simple.js
+2_indexedTables.js
+3_cachedIndex.js
